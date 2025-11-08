@@ -1,0 +1,54 @@
+{
+  "feature_names": [
+    "gold",
+    "fx",
+    "cpi",
+    "oil",
+    "set",
+    "btc",
+    "gold_lag1",
+    "gold_lag3",
+    "gold_roll7_mean",
+    "gold_pct_change",
+    "fx_lag1",
+    "fx_lag3",
+    "fx_roll7_mean",
+    "fx_pct_change",
+    "cpi_lag1",
+    "cpi_lag3",
+    "cpi_roll7_mean",
+    "cpi_pct_change",
+    "oil_lag1",
+    "oil_lag3",
+    "oil_roll7_mean",
+    "oil_pct_change",
+    "set_lag1",
+    "set_lag3",
+    "set_roll7_mean",
+    "set_pct_change",
+    "btc_lag1",
+    "btc_lag3",
+    "btc_roll7_mean",
+    "btc_pct_change"
+  ],
+  "cv_results": [
+    {
+      "model": "LinearRegression",
+      "MAE": 317.9941009616993,
+      "RMSE": 434.1127083377438
+    },
+    {
+      "model": "RandomForestRegressor",
+      "MAE": 2448.3447154471546,
+      "RMSE": 3584.6426603552864
+    },
+    {
+      "model": "NaiveRoll7",
+      "MAE": 350.8270507120303,
+      "RMSE": 513.3998526761155
+    }
+  ],
+  "chosen_model": "LinearRegression",
+  "chosen_rmse": 434.1127083377438,
+  "chosen_mae": 317.9941009616993
+}

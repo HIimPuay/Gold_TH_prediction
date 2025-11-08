@@ -1,21 +1,23 @@
-# scripts/realtime_features.py
+# scripts_btc/realtime_features_btc.py
 from __future__ import annotations
 import pandas as pd
-import numpy as np
 from pathlib import Path
 from typing import Dict
 
-VARS = ["gold","fx","cpi","oil","set"]
+VARS = ["gold","fx","cpi","oil","set","btc"]
 
 def load_context(feature_store_path: Path, context_days: int = 14) -> pd.DataFrame:
     df = pd.read_csv(feature_store_path, parse_dates=["date"])
     df = df.sort_values("date")
     return df.tail(context_days).reset_index(drop=True)
 
-def make_realtime_row(latest_date: pd.Timestamp, payload: Dict[str, float]) -> pd.DataFrame:
+def make_realtime_row(latest_date, payload: Dict[str, float]) -> pd.DataFrame:
     row = {"date": pd.to_datetime(latest_date)}
     for k in VARS:
-        row[k] = float(payload[k])
+        if k in payload:
+            row[k] = float(payload[k])
+        else:
+            raise KeyError(f"Missing required key in payload: {k}")
     return pd.DataFrame([row])
 
 def add_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -34,6 +36,6 @@ def build_feature_vector_for_today(context_df: pd.DataFrame, today_raw_df: pd.Da
     features = []
     for col in VARS:
         features += [f"{col}_lag1", f"{col}_lag3", f"{col}_roll7_mean", f"{col}_pct_change"]
-    features += VARS  # include raw as well (depends on model)
+    features += VARS
     X = today[features].dropna().copy()
     return X

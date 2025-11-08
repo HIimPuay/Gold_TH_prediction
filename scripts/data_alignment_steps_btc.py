@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-data_alignment_steps.py
+data_alignment_steps.py (with Bitcoin support)
 ---------------------------------
 Detailed step-by-step script for:
 (2) Data Alignment
@@ -18,6 +18,7 @@ from pathlib import Path
 # ---------------- CONFIG ---------------- #
 RAW = Path("../data/raw")              # path to raw data
 OUT = Path("../data/Feature_store/feature_store.csv")
+BTC_PATH = RAW / "bitcoin_history.csv"  # <<<< เพิ่ม Bitcoin
 
 # ---------------- STEP 2: Data Alignment ---------------- #
 
@@ -70,14 +71,41 @@ setidx["Close"] = pd.to_numeric(setidx["Close"], errors="coerce")
 setidx = setidx.dropna(subset=["Close"])
 setidx = setidx[["date", "Close"]].rename(columns={"Close": "set"}).sort_values("date")
 
+# <<<< เพิ่ม Bitcoin >>>>
+btc = None
+if BTC_PATH.exists():
+    try:
+        btc_df = pd.read_csv(BTC_PATH)
+        date_col = "Date" if "Date" in btc_df.columns else "date"
+        price_col = "Close" if "Close" in btc_df.columns else "close"
+        btc = btc_df[[date_col, price_col]].copy()
+        btc["date"] = pd.to_datetime(btc[date_col], errors="coerce")
+        btc = btc.rename(columns={price_col: "btc"})
+        btc = btc[["date", "btc"]].dropna().sort_values("date")
+        btc["btc"] = pd.to_numeric(btc["btc"], errors="coerce")
+        btc = btc.dropna(subset=["btc"]).drop_duplicates(subset=["date"], keep="last")
+        print(f"✅ Bitcoin data loaded: {len(btc)} rows")
+    except Exception as e:
+        print(f"⚠️ Bitcoin load failed: {e}")
+        btc = None
+else:
+    print(f"⚠️ Bitcoin file not found at {BTC_PATH}")
+
 # Combine by date
-start = min(df["date"].min() for df in [gold, fx, cpi, oil, setidx])
-end = max(df["date"].max() for df in [gold, fx, cpi, oil, setidx])
+datasets = [gold, fx, cpi, oil, setidx]
+if btc is not None:
+    datasets.append(btc)
+
+start = min(df["date"].min() for df in datasets)
+end = max(df["date"].max() for df in datasets)
 calendar = pd.DataFrame({"date": pd.bdate_range(start, end)})
 
 feat = calendar.copy()
 for name, df in [("gold", gold), ("fx", fx), ("cpi", cpi), ("oil", oil), ("set", setidx)]:
     feat = feat.merge(df, on="date", how="left")
+
+if btc is not None:
+    feat = feat.merge(btc, on="date", how="left")
 
 print("Combined shape:", feat.shape)
 
@@ -87,12 +115,21 @@ print("=== STEP 3: Frequency Transformation ===")
 feat["cpi"] = feat["cpi"].ffill()
 feat["fx"] = feat["fx"].ffill()
 feat["oil"] = feat["oil"].ffill()
-for col in ["gold", "set"]:
+
+cols_to_fill = ["gold", "set"]
+if "btc" in feat.columns:
+    cols_to_fill.append("btc")
+
+for col in cols_to_fill:
     feat[col] = feat[col].ffill().bfill()
 
 # ---------------- STEP 4: Handle Missing Values ---------------- #
 print("=== STEP 4: Handle Missing Values ===")
-for col in ["gold", "fx", "cpi", "oil", "set"]:
+cols_to_interpolate = ["gold", "fx", "cpi", "oil", "set"]
+if "btc" in feat.columns:
+    cols_to_interpolate.append("btc")
+
+for col in cols_to_interpolate:
     feat[col] = feat[col].ffill().bfill().interpolate(limit_direction="both")
 
 # ---------------- STEP 5: Target Variable ---------------- #
@@ -102,6 +139,8 @@ feat["gold_next"] = feat["gold"].shift(-1)
 # ---------------- STEP 6: Feature Engineering ---------------- #
 print("=== STEP 6: Feature Engineering ===")
 vars_all = ["gold", "fx", "cpi", "oil", "set"]
+if "btc" in feat.columns:
+    vars_all.append("btc")
 
 for col in vars_all:
     feat[f"{col}_lag1"] = feat[col].shift(1)
@@ -115,3 +154,4 @@ feat.to_csv(OUT, index=False)
 
 print(f"[OK] Saved Feature Store → {OUT.as_posix()}")
 print("Rows:", len(feat), "Cols:", len(feat.columns))
+print("Variables:", vars_all)

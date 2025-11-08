@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Build Feature Store for Thai Gold Price Project
-- Aligns RAW datasets to daily business calendar
-- Handles missing values (ffill/bfill/interpolate)
-- Creates target (gold_next), lags (1,3), rolling mean (7d), pct_change
-- Exports feature_store.csv
-
+Build Feature Store (with Bitcoin as additional factor)
+Adds 'btc' features alongside gold, fx, cpi, oil, set.
+- Align to daily business calendar
+- Handle missing (ffill/bfill/interpolate)
+- Create target gold_next, lags (1,3), rolling mean (7d), pct_change
 Usage:
-  python build_feature_store.py \
+  python build_feature_store_btc.py \
     --data-dir ./data/raw \
-    --out ./data/Feature_store/feature_store.csv \
-    --roll-window 7 \
-    --min-periods 3
+    --btc ./data/raw/bitcoin_history.csv \
+    --out ./data/Feature_store/feature_store.csv
 """
 import argparse
 from pathlib import Path
@@ -22,6 +20,7 @@ import numpy as np
 def parse_args():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", type=Path, default=Path("."))
+    ap.add_argument("--btc", type=Path, default=None, help="Path to bitcoin_history.csv")
     ap.add_argument("--out", type=Path, default=Path("feature_store.csv"))
     ap.add_argument("--min-periods", type=int, default=3)
     ap.add_argument("--roll-window", type=int, default=7)
@@ -107,6 +106,17 @@ def load_set(p):
     out = out.drop_duplicates(subset=["date"], keep="last")
     return out
 
+def load_btc(p):
+    df = pd.read_csv(p)
+    # Expect columns: Date, Open, High, Low, Close, Volume
+    date_col = "Date" if "Date" in df.columns else "date"
+    df["date"] = pd.to_datetime(df[date_col], errors="coerce")
+    price_col = "Close" if "Close" in df.columns else "close"
+    out = df.dropna(subset=["date", price_col])[["date", price_col]].rename(columns={price_col:"btc"}).sort_values("date")
+    out["btc"] = pd.to_numeric(out["btc"], errors="coerce")
+    out = out.dropna(subset=["btc"]).drop_duplicates(subset=["date"], keep="last")
+    return out
+
 def main():
     args = parse_args()
     D = args.data_dir
@@ -115,30 +125,31 @@ def main():
     cpi  = load_cpi(D/"CPI_clean_for_supabase.csv")
     oil  = load_oil(D/"petroleum_data.csv")
     seti = load_set(D/"set_index.csv")
+    btc  = load_btc(args.btc) if args.btc else None
 
-    start = min(df["date"].min() for df in [gold, fx, cpi, oil, seti])
-    end   = max(df["date"].max() for df in [gold, fx, cpi, oil, seti])
+    start = min(df["date"].min() for df in [gold, fx, cpi, oil, seti] + ([btc] if btc is not None else []))
+    end   = max(df["date"].max() for df in [gold, fx, cpi, oil, seti] + ([btc] if btc is not None else []))
     calendar = pd.DataFrame({"date": pd.bdate_range(start, end)})
 
     feat = calendar.copy()
-    for name, df in [("gold",gold),("fx",fx),("cpi",cpi),("oil",oil),("set",seti)]:
-        feat = feat.merge(df, on="date", how="left")
+    for name, df_ in [("gold",gold),("fx",fx),("cpi",cpi),("oil",oil),("set",seti)]:
+        feat = feat.merge(df_, on="date", how="left")
+    if btc is not None:
+        feat = feat.merge(btc, on="date", how="left")
 
     # frequency alignment
     feat["cpi"] = feat["cpi"].ffill()
-    for col in ["gold","fx","oil","set"]:
+    for col in ["gold","fx","oil","set","btc"] if "btc" in feat.columns else ["gold","fx","oil","set"]:
         feat[col] = feat[col].ffill().bfill()
 
-    # residual missing
-    for col in ["gold","fx","cpi","oil","set"]:
+    for col in [c for c in ["gold","fx","cpi","oil","set","btc"] if c in feat.columns]:
         if feat[col].isna().any():
             feat[col] = feat[col].interpolate(limit_direction="both")
 
     # target
     feat["gold_next"] = feat["gold"].shift(-1)
 
-    # features
-    vars_all = ["gold","fx","cpi","oil","set"]
+    vars_all = [c for c in ["gold","fx","cpi","oil","set","btc"] if c in feat.columns]
     for col in vars_all:
         feat[f"{col}_lag1"] = feat[col].shift(1)
         feat[f"{col}_lag3"] = feat[col].shift(3)
