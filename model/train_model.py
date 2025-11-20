@@ -18,6 +18,9 @@ from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from tensorflow.keras.callbacks import EarlyStopping
 
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
 # -------------------- Optional libs -------------------- #
 try:
     import xgboost as xgb
@@ -87,8 +90,8 @@ def prepare_features(df: pd.DataFrame):
         feature_cols.extend([
             f"{var}_lag1",
             f"{var}_lag3",
-            f"{var}_roll7_mean",
-            f"{var}_pct_change"
+            f"{var}_roll7",
+            f"{var}_pct"
         ])
     feature_cols.extend(vars_list)  # ตัวแปรต้นทาง
 
@@ -398,201 +401,123 @@ def save_best_model(trained_models, results, output_dir: Path, feature_cols):
     print(f"   MAE: {results[best_name]['MAE']:.2f} บาท | RMSE: {results[best_name]['RMSE']:.2f} บาท")
     return best_model, best_name
 
-def plot_predictions(model, X_test, y_test, dates_test, model_name, output_dir: Path):
-    """พล็อตผลการทำนาย"""
-    try:
-        import matplotlib.pyplot as plt
-        plt.style.use('seaborn-v0_8-darkgrid')
-    except Exception:
-        print("⚠️  Matplotlib not available, skipping plots")
-        return
+# -------------------- PLOTTING FUNCTION (NEW) -------------------- #
 
-    # LSTM models have incompatible X_test (3D) and y_test (unscaled), so we skip plotting for them here.
-    # if model_name == "lstm":
-    #      print(f"⚠️  Skipping plotting for {model_name.upper()} due to incompatible data format.")
-    #      return
-
-    y_pred = model.predict(X_test)
-
-    import matplotlib.dates as mdates
-    fig, axes = plt.subplots(2, 1, figsize=(14, 10))
-
-    # Plot 1: Actual vs Predicted
-    ax1 = axes[0]
-    ax1.plot(dates_test, y_test, label='Actual', linewidth=2)
-    ax1.plot(dates_test, y_pred, label='Predicted', linewidth=2, alpha=0.85)
-    ax1.fill_between(dates_test, y_test, y_pred, alpha=0.25)
-    ax1.set_xlabel('Date', fontsize=12)
-    ax1.set_ylabel('Gold Price (THB)', fontsize=12)
-    ax1.set_title(f'Gold Price Prediction - {model_name.upper()}', fontsize=14, fontweight='bold')
-    ax1.legend(fontsize=11)
-    ax1.grid(True, alpha=0.3)
-    ax1.xaxis.set_major_locator(mdates.AutoDateLocator())
-    ax1.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax1.xaxis.get_major_locator()))
-
-    # Plot 2: Residuals
-    ax2 = axes[1]
-    residuals = y_test - y_pred
-    ax2.scatter(dates_test, residuals, alpha=0.5)
-    ax2.axhline(y=0, linestyle='--', linewidth=2)
-    ax2.set_xlabel('Date', fontsize=12)
-    ax2.set_ylabel('Residuals (THB)', fontsize=12)
-    ax2.set_title('Prediction Residuals', fontsize=14, fontweight='bold')
-    ax2.grid(True, alpha=0.3)
-    ax2.xaxis.set_major_locator(mdates.AutoDateLocator())
-    ax2.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax2.xaxis.get_major_locator()))
-
-    plt.tight_layout()
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    plot_path = output_dir / f"predictions_{model_name}_{timestamp}.png"
-    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
-    print(f"📈 Prediction plot saved to: {plot_path}")
-    plt.show() 
-    plt.close()
-
-
-# -------------------- PLOTTING LSTM FUNCTIONS -------------------- #
-
-def plot_lstm_predictions(lstm_model, df: pd.DataFrame, feature_cols: list, test_size: float, output_dir: Path):
-    """
-    พล็อตผลการทำนายสำหรับ LSTM โดยเฉพาะ (เนื่องจากต้องเตรียมข้อมูลแตกต่างจาก sklearn)
-    """
-    try:
-        import matplotlib.pyplot as plt
-        import matplotlib.dates as mdates
-        plt.style.use('seaborn-v0_8-darkgrid')
-    except Exception:
-        print("⚠️  Matplotlib not available, skipping plots")
-        return
-
-    MODEL_NAME = "lstm"
-    TIME_STEP = 60 # ต้องตรงกับค่าที่ใช้ในการเทรน
+def plot_predictions(trained_models, df_full, feature_cols, splits, dates_full, test_size, output_dir):
+    """เปรียบเทียบผลทำนายของทุกโมเดลกับค่าจริงบน Test Set และแสดงในกราฟเดียว"""
     
-    print(f"📈 Generating plot for {MODEL_NAME.upper()}...")
+    # Unpack splits
+    X_train, X_test, y_train, y_test = splits
 
-    # 1. Redo data preparation to get Scaler, X_test_lstm, and Y_test_actual
-    X_train_lstm, Y_train_lstm, X_test_lstm, Y_test_actual, scaler, training_data_len = \
-        prepare_lstm_data(df, feature_cols, TIME_STEP, test_size)
+    # Dataframe to store predictions
+    # ใช้ dates ที่สอดคล้องกับ index ของ X_test
+    dates_test = dates_full.loc[X_test.index].reset_index(drop=True)
+    df_plot = pd.DataFrame({'date': dates_test, 'Actual': y_test.values})
+
+    print("\n📈 Generating prediction comparison plot...")
+    
+    # Get predictions for all models
+    for name, model in trained_models.items():
+        # y_actual_trimmed คือค่าจริงที่จัดเรียงให้ตรงกับ y_pred (y_test หรือ y_test ที่ถูกตัดส่วนต้นออกสำหรับ LSTM)
+        y_actual_trimmed, y_pred = get_predictions(
+            model, name, X_test, y_test, df_full, feature_cols, test_size
+        )
         
-    # 2. Predict
-    predictions_scaled = lstm_model.predict(X_test_lstm, verbose=0)
+        # จัดเรียงข้อมูลการทำนาย
+        if name != "lstm":
+            # สำหรับโมเดลที่ไม่ใช่ LSTM, การทำนายจะครอบคลุม X_test ทั้งหมด
+            df_plot[f'{name.upper()}_Pred'] = y_pred
+        else:
+            # สำหรับ LSTM, การทำนายจะถูกตัดออกไป TIME_STEP วันแรกของ Test Set
+            # ต้องหา index เริ่มต้นที่สอดคล้องกับการทำนายของ LSTM
+            start_index_trim = len(df_plot) - len(y_pred)
+            
+            # สร้าง DataFrame ชั่วคราวสำหรับ LSTM predictions โดยใช้วันที่ที่ตัดส่วนต้นออกแล้ว
+            df_lstm_plot = pd.DataFrame({
+                'date': dates_test[start_index_trim:].reset_index(drop=True),
+                f'{name.upper()}_Pred': y_pred
+            })
+            # Merge LSTM predictions เข้ากับ DataFrame หลักโดยใช้ 'date'
+            df_plot = pd.merge(df_plot, df_lstm_plot, on='date', how='left')
+            
+        print(f"   {name.upper()} predictions added (Length: {len(y_pred)})")
 
-    # 3. Inverse Transform 
-    n_features = scaler.n_features_in_
-    predictions_dummy = np.zeros((predictions_scaled.shape[0], n_features))
-    predictions_dummy[:, 0] = predictions_scaled.flatten() 
-    predictions_unscaled = scaler.inverse_transform(predictions_dummy)[:, 0].flatten()
 
-    # 4. Extract dates
-    # Test set starts from training_data_len (index)
-    start_date_index = training_data_len 
-    test_dates_full = df["date"].values[start_date_index:]
+    # --- Matplotlib Plotting ---
+    plt.style.use('ggplot')
     
-    # Trim dates and actuals to match predictions size
-    start_index_trim = len(test_dates_full) - len(predictions_unscaled)
-    dates_test = test_dates_full[start_index_trim:]
-    y_test = Y_test_actual[start_index_trim:] # Y_test_actual is already trimmed in train_and_evaluate_lstm but we use the result here
+    # กำหนดขนาดกราฟ
+    fig_width = max(15, len(df_plot) / 15) 
+    fig, ax = plt.subplots(figsize=(fig_width, 8))
 
-    y_pred = predictions_unscaled
+    # พล็อตค่าจริง (เส้นสีดำหนา)
+    ax.plot(df_plot['date'], df_plot['Actual'], label='Actual Gold Price', 
+            color='black', linewidth=3, alpha=0.9)
 
-    # --- Plotting Logic ---
-    fig, axes = plt.subplots(2, 1, figsize=(14, 10))
-
-    # Plot 1: Actual vs Predicted
-    ax1 = axes[0]
-    ax1.plot(dates_test, y_test, label='Actual', linewidth=2)
-    ax1.plot(dates_test, y_pred, label='Predicted', linewidth=2, alpha=0.85)
-    ax1.fill_between(dates_test, y_test, y_pred, alpha=0.25)
-    ax1.set_xlabel('Date', fontsize=12)
-    ax1.set_ylabel('Gold Price (THB)', fontsize=12)
-    ax1.set_title(f'Gold Price Prediction - {MODEL_NAME.upper()}', fontsize=14, fontweight='bold')
-    ax1.legend(fontsize=11)
-    ax1.grid(True, alpha=0.3)
-    ax1.xaxis.set_major_locator(mdates.AutoDateLocator())
-    ax1.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax1.xaxis.get_major_locator()))
-
-    # Plot 2: Residuals
-    ax2 = axes[1]
-    residuals = y_test - y_pred
-    ax2.scatter(dates_test, residuals, alpha=0.5)
-    ax2.axhline(y=0, linestyle='--', linewidth=2)
-    ax2.set_xlabel('Date', fontsize=12)
-    ax2.set_ylabel('Residuals (THB)', fontsize=12)
-    ax2.set_title('Prediction Residuals', fontsize=14, fontweight='bold')
-    ax2.grid(True, alpha=0.3)
-    ax2.xaxis.set_major_locator(mdates.AutoDateLocator())
-    ax2.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax2.xaxis.get_major_locator()))
-
-    plt.tight_layout()
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    plot_path = output_dir / f"predictions_{MODEL_NAME}_{timestamp}.png"
-    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
-    print(f"📈 Prediction plot saved to: {plot_path}")
-    plt.show() 
-    plt.close()
-
-# -------------------- END PLOTTING LSTM FUNCTIONS -------------------- #
-# เพิ่มฟังก์ชันนี้ต่อจาก plot_predictions (หรือ plot_lstm_predictions ถ้าคุณเพิ่มแล้ว)
-
-def plot_model_comparison(prediction_results: dict, dates_test, output_dir: Path):
-    """
-    พล็อตเส้นทำนายของทุกโมเดลเทียบกับราคาจริงในกราฟเดียว
-    """
-    try:
-        import matplotlib.pyplot as plt
-        import matplotlib.dates as mdates
-        plt.style.use('seaborn-v0_8-darkgrid')
-    except Exception:
-        print("⚠️  Matplotlib not available, skipping comparison plot.")
-        return
-
-    print("📈 Generating ALL Model Comparison Plot...")
-
-    # ดึงค่า Actual (ราคาจริง) ออกมา ซึ่งควรจะเป็นค่าเดียวกันสำหรับทุกโมเดล
-    # ใช้ค่า Actual จากโมเดลแรกใน Dictionary
-    model_names = list(prediction_results.keys())
-    y_actual = prediction_results[model_names[0]]["y_actual"]
-
-    fig, ax = plt.subplots(1, 1, figsize=(16, 9))
+    # พล็อตค่าทำนายของแต่ละโมเดล
+    # โค้ดใหม่: เลือกใช้ชุดสี 'tab10' หรือ 'Set1' (เหมาะสำหรับจำนวนโมเดลไม่มาก)
+    model_preds = [col for col in df_plot.columns if '_Pred' in col]
     
-    # 1. Plot Actual Price
-    ax.plot(dates_test[:len(y_actual)], y_actual, label='Actual Price', linewidth=3, color='black', alpha=0.9)
+    # ใช้ colormap 'tab10' ซึ่งมี 10 สีที่แตกต่างกันชัดเจน
+    # กำหนดสีสำหรับแต่ละโมเดล
+    color_mapping = {
+        'RIDGE_Pred': 'blue', 
+        'LINEAR_Pred': 'green',
+        'LASSO_Pred': 'purple',
+        'RF_Pred': 'orange',
+        'GBM_Pred': 'brown',
+        'LSTM_Pred': 'red',
+        # เพิ่มโมเดลอื่น ๆ ที่เหลือ
+    }
 
-    # 2. Plot Predicted Prices for all models
-    for name in model_names:
-        y_pred = prediction_results[name]["y_pred"]
-        # ต้องแน่ใจว่ามิติของ y_pred และ dates_test ตรงกันสำหรับ LSTM
-        plot_len = min(len(y_actual), len(y_pred)) 
+    colors_map = plt.cm.get_cmap('tab10')
+    
+    # ใน Loop สำหรับพล็อตค่าทำนาย
+    for i, col in enumerate(model_preds):
+        # ใช้สีที่กำหนดเองจาก color_mapping 
+        # หากไม่กำหนด ให้ใช้สีจาก colormap อัตโนมัติ (tab10)
+        plot_color = color_mapping.get(col, colors_map(i)) 
         
-        ax.plot(dates_test[:plot_len], y_pred[:plot_len], label=f'Predicted - {name.upper()}', linewidth=1.5, alpha=0.7)
+        ax.plot(df_plot['date'], df_plot[col], 
+                label=col.replace('_Pred', ''), 
+                color=plot_color, 
+                linestyle='--', 
+                alpha=0.7)
+    
+    # จัดรูปแบบ
+    ax.set_title(f'Gold Price Prediction Comparison on Test Set (Test Size: {test_size*100:.0f}%)', fontsize=16)
+    ax.set_xlabel('Date', fontsize=12)
+    ax.set_ylabel('Gold Price (THB)', fontsize=12)
+    ax.legend(loc='best', fontsize=10, ncol=min(3, len(model_preds)+1))
+    ax.grid(True, linestyle=':', alpha=0.6)
 
-    ax.set_xlabel('Date', fontsize=14)
-    ax.set_ylabel('Gold Price (THB)', fontsize=14)
-    ax.set_title('Gold Price Prediction Comparison Across Models', fontsize=16, fontweight='bold')
-    ax.legend(fontsize=12, loc='upper left')
-    ax.grid(True, alpha=0.4)
+    # จัดรูปแบบวันที่บนแกน x
+    formatter = mdates.DateFormatter("%Y-%m-%d")
+    ax.xaxis.set_major_formatter(formatter)
+    fig.autofmt_xdate(rotation=45) 
     
-    # Format Date Axis
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-    ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
-    
-    plt.tight_layout()
+    # บันทึกกราฟ
+    output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     plot_path = output_dir / f"predictions_comparison_{timestamp}.png"
-    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
-    print(f"✅ Comparison plot saved to: {plot_path}")
-    plt.show() 
+    plt.tight_layout()
+    plt.savefig(plot_path)
     plt.close()
- 
 
-def main():
-    parser = argparse.ArgumentParser(description="Train gold price prediction model")
-    parser.add_argument("--data", type=Path, default=FEATURE_STORE, help="Path to feature store")
-    parser.add_argument("--model-dir", type=Path, default=MODEL_DIR, help="Output directory for model")
-    parser.add_argument("--results-dir", type=Path, default=RESULTS_DIR, help="Output directory for results")
-    parser.add_argument("--test-size", type=float, default=0.2, help="Test set size (0-1)")
-    parser.add_argument("--plot", action="store_true", help="Generate prediction plots")
-    args = parser.parse_args()
+    print(f"💾 Prediction comparison plot saved to: {plot_path}")
+    return df_plot
+
+# -------------------- END PLOTTING FUNCTION -------------------- #
+
+
+def main(args):
+    # parser = argparse.ArgumentParser(description="Train gold price prediction model")
+    # parser.add_argument("--data", type=Path, default=FEATURE_STORE, help="Path to feature store")
+    # parser.add_argument("--model-dir", type=Path, default=MODEL_DIR, help="Output directory for model")
+    # parser.add_argument("--results-dir", type=Path, default=RESULTS_DIR, help="Output directory for results")
+    # parser.add_argument("--test-size", type=float, default=0.2, help="Test set size (0-1)")
+    # parser.add_argument("--plot", action="store_true", help="Generate prediction plots")
+    # args = parser.parse_args()
 
     print("🚀 Starting Gold Price Prediction Model Training")
     print("=" * 60)
@@ -642,43 +567,28 @@ def main():
         trained_models, results, args.model_dir, feature_cols
     )
 
-# สร้างกราฟ (ถ้าต้องการ)
-    if args.plot:
-        X_train, X_test, y_train, y_test = splits
-        test_dates = dates.iloc[-len(X_test):].reset_index(drop=True)
-        
-        # --- NEW: Collect Predictions for Comparison Plot ---
-        all_predictions = {}
-        df_lstm_for_plot = df.loc[X.index].copy() # ใช้ข้อมูลที่ผ่านการ clean แล้ว
-        
-        print("\n" + "=" * 60)
-        print("💾 Collecting Predictions for ALL Models...")
-
-        for name, model in trained_models.items():
-            y_actual, y_pred = get_predictions(
-                model, 
-                name, 
-                X_test, 
-                y_test, 
-                df_lstm_for_plot, 
-                feature_cols, 
-                args.test_size
-            )
-            all_predictions[name] = {"y_actual": y_actual, "y_pred": y_pred}
-            print(f"   Collected {name.upper()} predictions (Length: {len(y_pred)})")
-        
-        # --- Generate Comparison Plot ---
-        plot_model_comparison(all_predictions, test_dates, args.results_dir)
-        
-        # --- Generate Individual Plots (Optional, ถ้าต้องการดูกราฟ Residuals) ---
-        # ถ้าคุณต้องการให้แสดงกราฟ Residuals ของแต่ละโมเดลด้วย ให้เพิ่มโค้ดนี้
-        # for name, model in trained_models.items():
-        #     if name != "lstm":
-        #         plot_predictions(model, X_test, y_test, test_dates, name, args.results_dir)
-        #     # Note: ไม่จำเป็นต้องพล็อต LSTM แยกแล้ว เพราะข้อมูลไม่ครบ
+    # --- ADDED: PLOT PREDICTIONS ---
+    if args.plot: 
+        df_predictions = plot_predictions(
+            trained_models, 
+            df, 
+            feature_cols, 
+            splits, 
+            dates, 
+            args.test_size, 
+            args.results_dir
+        )
 
     print("\n✅ Training complete!")
     print("=" * 60)
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Train gold price prediction model")
+    parser.add_argument("--data", type=Path, default=FEATURE_STORE, help="Path to feature store")
+    parser.add_argument("--model-dir", type=Path, default=MODEL_DIR, help="Output directory for model")
+    parser.add_argument("--results-dir", type=Path, default=RESULTS_DIR, help="Output directory for results")
+    parser.add_argument("--test-size", type=float, default=0.2, help="Test set size (0-1)")
+    parser.add_argument("--plot", action="store_true", help="Generate prediction plots")
+    args = parser.parse_args()
+
+    main(args)

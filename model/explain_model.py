@@ -30,6 +30,14 @@ try:
 except Exception:
     HAS_TF = False
 
+try:
+    import lime
+    import lime.lime_tabular
+    HAS_LIME = True
+except Exception:
+    HAS_LIME = False
+    print("⚠️ LIME not installed. Install: pip install lime")
+
 # ==================== PATH / CONFIG ==================== #
 
 def find_project_root() -> Path:
@@ -47,7 +55,7 @@ PROJECT_ROOT = find_project_root()
 FEATURE_STORE = PROJECT_ROOT / "data" / "Feature_store" / "feature_store.csv"
 MODEL_DIR = PROJECT_ROOT / "model"
 RESULTS_DIR = PROJECT_ROOT / "results"
-
+TUNED_MODEL_NAME = "ridge_tuned"
 # ==================== CORE FUNCTIONS ==================== #
 
 def load_data_and_model(data_path: Path):
@@ -55,29 +63,52 @@ def load_data_and_model(data_path: Path):
     โหลดโมเดลที่ดีที่สุด, metadata, และข้อมูล X_test ที่ใช้ในการทำนาย (สำหรับ SHAP)
     """
     
-    # 1. Load Metadata
-    metadata_path = MODEL_DIR / "model_metadata.pkl"
-    if not metadata_path.exists():
-        raise FileNotFoundError(f"❌ Metadata not found at: {metadata_path}. Run train_model.py first!")
-    metadata = joblib.load(metadata_path)
-    model_type = metadata.get('model_type', 'unknown')
-    feature_cols = metadata['features']
+    # --- 1. ตรวจสอบและโหลดโมเดลที่ถูกจูนแล้ว (Tuned Model) ---
     
-    # 2. Load Model
-    if model_type == "lstm":
-        if not HAS_TF:
-            raise ImportError("TensorFlow/Keras is required to load LSTM model.")
-        model_path = MODEL_DIR / "best_model_lstm.keras"
+    # ค้นหา metadata ของโมเดลจูนล่าสุด โดยการหาไฟล์ที่ขึ้นต้นด้วย 'ridge_tuned_metadata'
+    tuned_metadata_files = sorted(MODEL_DIR.glob(f"{TUNED_MODEL_NAME}_metadata_*.pkl"), reverse=True)
+    
+    if tuned_metadata_files:
+        # ใช้ไฟล์ metadata ที่ใหม่ที่สุด
+        metadata_path = tuned_metadata_files[0]
+        metadata = joblib.load(metadata_path)
+        
+        # ชื่อไฟล์โมเดลจะอยู่ในชื่อ metadata (เช่น ridge_tuned_alpha_5000.0000_20251121_xxxxxx.pkl)
+        model_filename = metadata_path.name.replace("_metadata", "").replace(".pkl", ".pkl")
+        model_path = MODEL_DIR / model_filename
+        
+        # ใช้ model_type ที่ถูกต้อง (ไม่ใช่ "ridge" หรือ "lstm" เดิม)
+        model_type = TUNED_MODEL_NAME
+        
         if not model_path.exists():
-             raise FileNotFoundError(f"❌ LSTM Model not found at: {model_path}. Run train_model.py first!")
-        best_model = keras.models.load_model(model_path)
-    else:
-        model_path = MODEL_DIR / "best_model.pkl"
-        if not model_path.exists():
-             raise FileNotFoundError(f"❌ SKLearn/Base Model not found at: {model_path}. Run train_model.py first!")
-        best_model = joblib.load(model_path)
+            raise FileNotFoundError(f"❌ Tuned Model found metadata but file not found: {model_path}")
+            
+        print(f"✅ Loaded Tuned Model: {model_type.upper()} ({model_path.name})")
 
-    print(f"✅ Loaded Best Model: {model_type.upper()}")
+    # --- 2. Fallback ไปใช้ Best Model เดิม (ถ้าไม่มีไฟล์จูน) ---
+    else:
+        # โหลด metadata เดิม
+        metadata_path = MODEL_DIR / "model_metadata.pkl"
+        if not metadata_path.exists():
+            raise FileNotFoundError(f"❌ Metadata not found at: {metadata_path}. Run train_model.py first!")
+        metadata = joblib.load(metadata_path)
+        model_type = metadata.get('model_type', 'unknown')
+        
+        # โหลดโมเดลตาม model_type เดิม
+        if model_type == "lstm":
+            # ... (โค้ดโหลด LSTM เดิม) ...
+            model_path = MODEL_DIR / "best_model_lstm.keras"
+            if not model_path.exists(): raise FileNotFoundError(...)
+            best_model = keras.models.load_model(model_path)
+        else:
+            model_path = MODEL_DIR / "best_model.pkl"
+            if not model_path.exists(): raise FileNotFoundError(...)
+            best_model = joblib.load(model_path)
+        
+        print(f"✅ Loaded Base Model: {model_type.upper()} ({model_path.name})")
+
+    best_model = joblib.load(model_path)
+    feature_cols = metadata['features']
     
     # 3. Load Data (Re-construct X_test based on train_model.py's logic)
     if not data_path.exists():
@@ -169,6 +200,65 @@ def explain_model_shap(best_model, X_test: pd.DataFrame, feature_cols: list, mod
     print("✅ SHAP Explainability complete.")
 
 
+def explain_model_lime(best_model, X_test: pd.DataFrame, feature_cols: list, model_name: str, output_dir: Path):
+    """
+    คำนวณและแสดงผล LIME สำหรับการทำนายเฉพาะจุด
+    """
+    if not HAS_LIME:
+        return
+    
+    print("\n🔬 Starting LIME Explainability...")
+    
+    # 1. เตรียม Data สำหรับ Explainer
+    # LIME Tabular Explainer ใช้งานได้ดีกับข้อมูลโครงสร้างตาราง
+    
+    # ใช้ตัวอย่างข้อมูล Training/Test เป็นพื้นหลัง
+    # Explainer ต้องใช้ข้อมูล Training set ในการเรียนรู้ Distribution (แต่ในที่นี้ใช้ X_test แทนได้)
+    explainer = lime.lime_tabular.LimeTabularExplainer(
+        training_data=X_test.values,
+        feature_names=feature_cols,
+        class_names=['Gold Price Next Day'],  # สำหรับ Regression ให้กำหนดชื่อ Target
+        mode='regression',
+        random_state=42
+    )
+
+    # 2. เลือกตัวอย่างข้อมูล (Instance) ที่จะอธิบาย
+    # เราเลือกตัวอย่างสุดท้ายใน X_test (ล่าสุด) และตัวอย่างที่มีค่าทำนายสูง/ต่ำ 1 ตัวอย่าง
+    
+    # เลือกแถวสุดท้ายของ Test Set (การทำนายล่าสุด)
+    latest_instance = X_test.iloc[-1].values
+    
+    # เลือกตัวอย่างสุ่มสำหรับอธิบายเพิ่มเติม
+    sample_instance = X_test.sample(n=1, random_state=10).iloc[0].values
+    
+    # 3. สร้างคำอธิบาย
+    for i, instance in enumerate([latest_instance, sample_instance]):
+        is_latest = (i == 0)
+        title_suffix = "Latest Test Instance" if is_latest else "Random Test Instance"
+        
+        print(f"   Generating LIME explanation for: {title_suffix}...")
+
+        # กำหนดจำนวนฟีเจอร์หลักที่จะแสดง (Top 10)
+        explanation = explainer.explain_instance(
+            data_row=instance,
+            predict_fn=best_model.predict,
+            num_features=10 
+        )
+
+        # 4. พล็อตและบันทึก
+        fig = explanation.as_pyplot_figure()
+        fig.suptitle(f"LIME Explanation - {model_name.upper()} ({title_suffix})", fontsize=14)
+        
+        # ปรับขนาดและบันทึก
+        plt.tight_layout(rect=[0, 0, 1, 0.95])
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        plot_path_lime = output_dir / f"lime_explanation_{model_name}_{timestamp}_{i+1}.png"
+        plt.savefig(plot_path_lime, dpi=150, bbox_inches='tight')
+        plt.close(fig)
+        print(f"📈 LIME Plot saved to: {plot_path_lime}")
+    
+    print("✅ LIME Explainability complete.")
+
 def main():
     parser = argparse.ArgumentParser(description="Analyze Model Explainability (SHAP) for the best model")
     parser.add_argument("--data", type=Path, default=FEATURE_STORE, help="Path to feature store (required to reconstruct X_test)")
@@ -189,6 +279,8 @@ def main():
         # คำนวณและพล็อต SHAP
         explain_model_shap(best_model, X_test, feature_cols, model_name, args.results_dir)
 
+        explain_model_lime(best_model, X_test, feature_cols, model_name, args.results_dir)
+        
     except FileNotFoundError as e:
         print(f"\n{e}")
     except ImportError as e:
