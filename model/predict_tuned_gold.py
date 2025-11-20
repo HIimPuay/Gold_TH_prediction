@@ -11,6 +11,9 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime, timedelta
 import re
+import sys 
+
+# ==================== PATH / CONFIG ==================== #
 
 def find_project_root():
     """หา root directory ของโปรเจกต์"""
@@ -25,19 +28,34 @@ def find_project_root():
 
 PROJECT_ROOT = find_project_root()
 MODEL_DIR = PROJECT_ROOT / "model"
-# FEATURE_STORE = PROJECT_ROOT / "data" / "Feature_store" / "feature_store.csv" เปลี่ยนรูทไฟล์ฟีเจอร์เป็นอันใหม่
+FEATURE_STORE = PROJECT_ROOT / "data" / "Feature_store" / "feature_store.csv"
+
+# 🎯 NEW: กำหนดชื่อไฟล์โมเดลที่จูนแล้ว
+TUNED_MODEL_FILENAME = "ridge_tuned.pkl" 
+
+# ==================== CORE FUNCTIONS ==================== #
 
 def load_model_and_metadata(model_dir: Path):
-    """โหลดโมเดลและ metadata"""
-    model_path = model_dir / "best_model.pkl"
+    """
+    โหลดโมเดลและ metadata (ถูกแก้ไขให้โหลดโมเดลที่จูนแล้วเป็นหลัก)
+    """
+    
+    # 1. NEW: ลองโหลดโมเดลที่จูนแล้วก่อน (ridge_tuned.pkl)
+    model_path = model_dir / TUNED_MODEL_FILENAME
+    
+    # 2. Fallback: ถ้าไม่พบ ให้ใช้ best_model.pkl เดิม
+    if not model_path.exists():
+        model_path = model_dir / "best_model.pkl"
+        
     metadata_path = model_dir / "model_metadata.pkl"
     
     if not model_path.exists():
-        raise FileNotFoundError(f"❌ Model not found at: {model_path}")
+        raise FileNotFoundError(f"❌ Cannot find any model at: {model_dir}")
     
     if not metadata_path.exists():
         raise FileNotFoundError(f"❌ Metadata not found at: {metadata_path}")
     
+    print(f"✅ Loading model from: {model_path.name}")
     model = joblib.load(model_path)
     metadata = joblib.load(metadata_path)
     
@@ -75,11 +93,6 @@ def _parse_lag(col: str):
 def build_next_feature_row(last_row: pd.Series, feature_cols: list, predicted_price: float, next_date: pd.Timestamp) -> pd.Series:
     """
     สร้างแถวฟีเจอร์สำหรับ 'วันถัดไป' จากแถวล่าสุด + ราคาทองที่ทำนายได้
-    กติกา:
-      - ตั้ง date = next_date
-      - ตั้ง gold = predicted_price (ถ้ามีคอลัมน์นี้)
-      - สำหรับคอลัมน์ *_lagN จะ chain จากค่าก่อนหน้า (เลื่อนไปตามลำดับ)
-      - คอลัมน์อื่น ๆ ให้คงค่าจากวันก่อน (ffill) เพื่อเลี่ยง NaN
     """
     new_row = last_row.copy()
 
@@ -88,19 +101,15 @@ def build_next_feature_row(last_row: pd.Series, feature_cols: list, predicted_pr
 
     # อัปเดตราคาทอง (ถ้ามีคอลัมน์ gold)
     if "gold" in new_row.index:
-        prev_gold = float(last_row.get("gold", np.nan))
+        # prev_gold = float(last_row.get("gold", np.nan))
         new_row["gold"] = float(predicted_price)
-    else:
-        prev_gold = np.nan  # เผื่อใช้คำนวณอื่น ๆ
+    # else:
+    # prev_gold = np.nan
 
     # เตรียม cache ของค่าฐาน เพื่อใช้อัปเดต lag
-    # base_value[colname] = ค่าก่อนหน้า (จาก last_row)
     base_value = {c: last_row.get(c, np.nan) for c in last_row.index}
 
-    # อัปเดตคอลัมน์ *_lagN โดยพยายาม chain เช่น
-    #   base_lag1(new) = base(prev)
-    #   base_lag2(new) = base_lag1(prev)
-    #   base_lag3(new) = base_lag2(prev)
+    # อัปเดตคอลัมน์ *_lagN โดยพยายาม chain
     for col in last_row.index:
         base, n = _parse_lag(col)
         if base is None or n is None:
@@ -112,29 +121,20 @@ def build_next_feature_row(last_row: pd.Series, feature_cols: list, predicted_pr
                 new_row[col] = float(last_row.get("gold", np.nan))  # gold ของ "วันก่อนหน้า"
             else:
                 prev_col = f"{base}_lag{n-1}"
-                # ถ้าวันก่อนหน้ามีคอลัมน์ lag ที่ต้องการ ก็ใช้ค่านั้น
                 if prev_col in last_row.index:
                     new_row[col] = last_row.get(prev_col, np.nan)
                 else:
-                    # ถ้าไม่มี ให้ fallback เป็น gold เดิม
                     new_row[col] = float(last_row.get("gold", np.nan))
         else:
-            # สำหรับตัวแปรอื่น ๆ (usd_thb, set, oil ฯลฯ) เราใช้วิธี chain จากค่าก่อนหน้าเหมือนกัน
-            # โดยถือว่า "ค่าปัจจุบัน" ของ base ในวันถัดไป = ค่าก่อนหน้า (ffill)
-            # ดังนั้น lag1(new) = base(prev), lag2(new) = base_lag1(prev) ...
+            # สำหรับตัวแปรอื่น ๆ (usd_thb, set, oil ฯลฯ)
             if n == 1:
                 new_row[col] = base_value.get(base, np.nan)
             else:
                 prev_col = f"{base}_lag{n-1}"
                 new_row[col] = base_value.get(prev_col, base_value.get(base, np.nan))
 
-    # ทำความสะอาดค่า NaN เบื้องต้น
-    # (สำหรับคอลัมน์ที่ไม่ใช่ lag/predicted gold ให้คงค่าก่อนหน้าไว้)
+    # ทำความสะอาดค่า NaN เบื้องต้น (สำหรับคอลัมน์ที่ไม่ใช่ lag/predicted gold ให้คงค่าก่อนหน้าไว้)
     new_row = new_row.ffill().fillna(0)
-
-    # จำกัดเฉพาะฟีเจอร์ที่โมเดลใช้ (กันคอลัมน์เกิน)
-    # แต่ยังคงส่งกลับเป็น Series ที่มีครบ index เท่า last_row เพื่อใช้ append ต่อใน df
-    # การคัดเฉพาะฟีเจอร์จะไปทำตอนสร้าง X จริงใน predict_next_day
     return new_row
 
 def predict_next_day(model, df: pd.DataFrame, feature_cols: list):
@@ -202,8 +202,14 @@ def format_output(result: dict, metadata: dict):
         print("\n➡️ Change:             -")
     
     # แสดงข้อมูลโมเดล
+    # **UPDATE: แสดงข้อมูลโมเดลที่จูนแล้ว (Ridge Regressor alpha=100)**
+    if 'alpha' in re.sub(r'[^a-zA-Z0-9]', '', metadata['model_type'].lower()):
+        model_info_str = f"{metadata['model_type'].upper()} (alpha=100.0 - Tuned)"
+    else:
+        model_info_str = metadata['model_type'].upper()
+        
     print(f"\n🤖 Model Information:")
-    print(f"   Type:        {metadata['model_type'].upper()}")
+    print(f"   Type:        {model_info_str}")
     print(f"   Features:    {metadata['feature_count']}")
     print(f"   MAE:         {metadata['metrics']['MAE']:.2f} บาท")
     print(f"   RMSE:        {metadata['metrics']['RMSE']:.2f} บาท")
@@ -279,8 +285,8 @@ def main():
     try:
         # โหลดโมเดล
         print("📦 Loading model...")
+        # *** NEW: ใช้ load_model_and_metadata ที่ถูกปรับแล้ว ***
         model, metadata = load_model_and_metadata(args.model_dir)
-        print(f"✅ Loaded {metadata['model_type'].upper()} model")
         
         # โหลดข้อมูล
         print("📊 Loading data...")
@@ -304,7 +310,7 @@ def main():
                     'change_pct': result['change_pct']
                 }])
                 
-                output_path = PROJECT_ROOT / "results" / f"prediction_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                output_path = PROJECT_ROOT / "results" / f"prediction_tuned_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
                 output_path.parent.mkdir(parents=True, exist_ok=True)
                 output_df.to_csv(output_path, index=False)
                 print(f"💾 Prediction saved to: {output_path}")
@@ -320,7 +326,7 @@ def main():
                     'change_pct': p['change_pct']
                 } for p in predictions])
                 
-                output_path = PROJECT_ROOT / "results" / f"predictions_{args.days}days_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                output_path = PROJECT_ROOT / "results" / f"predictions_{args.days}days_tuned_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
                 output_path.parent.mkdir(parents=True, exist_ok=True)
                 output_df.to_csv(output_path, index=False)
                 print(f"\n💾 Predictions saved to: {output_path}")
