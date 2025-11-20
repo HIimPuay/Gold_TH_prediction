@@ -1,0 +1,184 @@
+#!/bin/bash
+# setup.sh - Setup Thai Gold Price Prediction System
+
+set -e  # Exit on error
+
+echo "🚀 Thai Gold Price Prediction System - Setup"
+echo "=" | tr '\n' '=' | head -c 70; echo
+
+# ==================== 1. Check Python ====================
+echo "📋 Checking Python..."
+if ! command -v python3 &> /dev/null; then
+    echo "❌ Python 3 not found! Please install Python 3.8+"
+    exit 1
+fi
+
+PYTHON_VERSION=$(python3 --version | cut -d' ' -f2)
+echo "✅ Found Python $PYTHON_VERSION"
+
+# ==================== 2. Create Virtual Environment ====================
+echo ""
+echo "🔧 Creating virtual environment..."
+if [ ! -d ".venv" ]; then
+    python3 -m venv .venv
+    echo "✅ Virtual environment created"
+else
+    echo "✅ Virtual environment already exists"
+fi
+
+# ==================== 3. Activate venv ====================
+echo ""
+echo "🔌 Activating virtual environment..."
+source .venv/bin/activate
+
+# ==================== 4. Upgrade pip ====================
+echo ""
+echo "⬆️  Upgrading pip..."
+pip install --upgrade pip -q
+
+# ==================== 5. Install Dependencies ====================
+echo ""
+echo "📦 Installing dependencies..."
+
+# Core packages
+pip install -q pandas numpy requests beautifulsoup4
+pip install -q scikit-learn xgboost lightgbm
+pip install -q matplotlib seaborn
+pip install -q joblib python-dotenv
+
+# API frameworks (สำหรับ serve_model_api.py)
+pip install -q fastapi uvicorn pydantic
+
+# Supabase client
+pip install -q supabase
+
+echo "✅ All packages installed"
+
+# ==================== 6. Create Directory Structure ====================
+echo ""
+echo "📁 Creating directory structure..."
+
+mkdir -p data/raw
+mkdir -p data/aligned
+mkdir -p data/Feature_store
+mkdir -p model
+mkdir -p results
+mkdir -p logs
+mkdir -p scripts
+
+echo "✅ Directories created"
+
+# ==================== 7. Create .env file ====================
+echo ""
+echo "📝 Creating .env file..."
+
+if [ ! -f ".env" ]; then
+    cat > .env << 'EOF'
+# Supabase Configuration (optional)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE=your-service-role-key
+
+# LINE Notify (optional)
+LINE_NOTIFY_TOKEN=your-line-notify-token
+
+# Project Root
+PROJECT_ROOT=/Users/nichanun/Desktop/DSDN
+EOF
+    echo "✅ .env file created (please edit with your credentials)"
+else
+    echo "⚠️  .env already exists, skipping"
+fi
+
+# ==================== 8. Download Initial Bitcoin Data ====================
+echo ""
+echo "🪙 Downloading Bitcoin historical data..."
+
+python3 - << 'PYTHON_SCRIPT'
+import requests
+import pandas as pd
+from pathlib import Path
+from datetime import datetime
+
+BASE_DIR = Path("data/raw")
+BTC_FILE = BASE_DIR / "bitcoin_history.csv"
+
+def fetch_btc_historical(days=730):
+    url = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart"
+    params = {'vs_currency': 'thb', 'days': days, 'interval': 'daily'}
+    
+    try:
+        response = requests.get(url, params=params, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        
+        prices = data['prices']
+        df = pd.DataFrame(prices, columns=['timestamp', 'btc_price'])
+        df['date'] = pd.to_datetime(df['timestamp'], unit='ms').dt.date
+        df = df.groupby('date').agg({'btc_price': 'last'}).reset_index()
+        df['date'] = pd.to_datetime(df['date'])
+        
+        BASE_DIR.mkdir(parents=True, exist_ok=True)
+        df.to_csv(BTC_FILE, index=False)
+        print(f"✅ Downloaded {len(df)} days of Bitcoin data")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to download Bitcoin data: {e}")
+        return False
+
+if not BTC_FILE.exists():
+    fetch_btc_historical()
+else:
+    print("⚠️  Bitcoin data already exists, skipping download")
+PYTHON_SCRIPT
+
+# ==================== 9. Create cron job helper ====================
+echo ""
+echo "⏰ Creating cron job helper..."
+
+cat > setup_cron.sh << 'EOF'
+#!/bin/bash
+# Add this to crontab: crontab -e
+# Run daily at 18:00
+# 0 18 * * * /Users/nichanun/Desktop/DSDN/run_daily.sh >> /Users/nichanun/Desktop/DSDN/logs/cron.log 2>&1
+
+CRON_ENTRY="0 18 * * * cd /Users/nichanun/Desktop/DSDN && /Users/nichanun/Desktop/DSDN/.venv/bin/python3 daily_pipeline.py >> logs/pipeline.log 2>&1"
+
+echo "Suggested cron entry:"
+echo "$CRON_ENTRY"
+echo ""
+echo "To add this to your crontab, run:"
+echo "  crontab -e"
+echo "Then paste the line above"
+EOF
+
+chmod +x setup_cron.sh
+
+echo "✅ Created setup_cron.sh"
+
+# ==================== 10. Summary ====================
+echo ""
+echo "=" | tr '\n' '=' | head -c 70; echo
+echo "✅ SETUP COMPLETED SUCCESSFULLY!"
+echo "=" | tr '\n' '=' | head -c 70; echo
+echo ""
+echo "📋 Next Steps:"
+echo "  1. Edit .env file with your Supabase credentials (if using)"
+echo "  2. Test the data ingestion:"
+echo "     python3 scripts/ingest_gold.py"
+echo ""
+echo "  3. Build feature store:"
+echo "     python3 scripts/build_feature_store_btc.py"
+echo ""
+echo "  4. Train model:"
+echo "     python3 model/train_model.py --plot"
+echo ""
+echo "  5. Make predictions:"
+echo "     python3 model/predict_gold.py --days 7 --save"
+echo ""
+echo "  6. View dashboard:"
+echo "     python3 dashboard.py"
+echo ""
+echo "  7. Setup cron job (optional):"
+echo "     ./setup_cron.sh"
+echo ""
+echo "🎉 Happy Predicting!"

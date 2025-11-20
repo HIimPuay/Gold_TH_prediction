@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 """
-Build Feature Store (with Bitcoin)
-- Align all raw economic data to business day calendar
-- Create lags, rolling, pct_change and gold_next
-- FIXED: Always use /data/raw/gold_history.csv
+build_feature_store_fixed.py - สร้าง Feature Store (แก้ชื่อ column)
+
+แก้ไข:
+- ใช้ _roll7_mean แทน _roll7
+- ใช้ _pct_change แทน _pct
 """
 
 import argparse
@@ -13,17 +12,18 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
-# -----------------------------
-# FIX: Project Root + Raw Dir
-# -----------------------------
 BASE_DIR = Path(__file__).resolve().parents[1]
 RAW = BASE_DIR / "data" / "raw"
 DEFAULT_OUT = BASE_DIR / "data" / "Feature_store" / "feature_store.csv"
 
-# -----------------------------
-# Buddhist date parser
-# -----------------------------
+THAI_MONTHS = {
+    "มกราคม": "01", "กุมภาพันธ์": "02", "มีนาคม": "03", "เมษายน": "04",
+    "พฤษภาคม": "05", "มิถุนายน": "06", "กรกฎาคม": "07", "สิงหาคม": "08",
+    "กันยายน": "09", "ตุลาคม": "10", "พฤศจิกายน": "11", "ธันวาคม": "12"
+}
+
 def parse_buddhist_date(s):
+    """แปลง พ.ศ. เป็น ค.ศ."""
     dt = pd.to_datetime(s, errors="coerce", dayfirst=True)
     if isinstance(s, str) and "/" in s:
         try:
@@ -38,39 +38,31 @@ def parse_buddhist_date(s):
         dt = dt.replace(year=dt.year - 543)
     return dt
 
-
-# -----------------------------
-# Loaders (Gold, FX, CPI, Oil, SET, BTC)
-# -----------------------------
 def load_gold():
+    """โหลดข้อมูลทอง"""
     p = RAW / "gold_history.csv"
     if not p.exists():
         raise FileNotFoundError(f"[ERROR] gold_history.csv not found: {p}")
 
     df = pd.read_csv(p)
-
-    # parse date
     df["date"] = df["date"].apply(parse_buddhist_date)
     df = df.dropna(subset=["date"])
 
-    # pick gold price column
     if "gold_sell" in df.columns:
         val_col = "gold_sell"
     elif "gold_bar_sell" in df.columns:
         val_col = "gold_bar_sell"
     else:
-        # take last numeric column (SAFE FIX)
         num_cols = df.select_dtypes(include=np.number).columns.tolist()
-        val_col = num_cols[-1]   # last numeric column
+        val_col = num_cols[-1]
 
     df = df[["date", val_col]].rename(columns={val_col: "gold"})
     df["gold"] = pd.to_numeric(df["gold"], errors="coerce")
-
     df = df.dropna(subset=["gold"]).drop_duplicates(subset=["date"], keep="last")
     return df.sort_values("date")
 
-
 def load_fx():
+    """โหลด USD/THB"""
     p = RAW / "exchange_rate.csv"
     df = pd.read_csv(p)
     if "period" in df.columns:
@@ -86,24 +78,21 @@ def load_fx():
     out = df.dropna(subset=["date"])[["date", rate_col]]
     out = out.rename(columns={rate_col: "fx"}).sort_values("date")
     out["fx"] = pd.to_numeric(out["fx"], errors="coerce")
-
     return out.dropna().drop_duplicates("date")
 
-
 def load_cpi():
+    """โหลด CPI"""
     p = RAW / "CPI_clean_for_supabase.csv"
     df = pd.read_csv(p)
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"])
 
     val_col = "cpi_index" if "cpi_index" in df.columns else "value"
-
     df["cpi"] = pd.to_numeric(df[val_col], errors="coerce")
-
     return df[["date", "cpi"]].dropna().drop_duplicates("date").sort_values("date")
 
-
 def load_oil():
+    """โหลดน้ำมัน"""
     p = RAW / "petroleum_data.csv"
     df = pd.read_csv(p)
     if "period" in df.columns:
@@ -112,43 +101,44 @@ def load_oil():
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
     val_col = "value" if "value" in df.columns else df.select_dtypes(np.number).columns[-1]
-
     df["oil"] = pd.to_numeric(df[val_col], errors="coerce")
-
     out = df.dropna(subset=["date", "oil"])
     out = out.groupby("date", as_index=False)["oil"].mean()
-
     return out.sort_values("date").drop_duplicates("date")
 
-
 def load_set():
+    """โหลด SET"""
     p = RAW / "set_index.csv"
     df = pd.read_csv(p)
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"])
 
     col = "Close" if "Close" in df.columns else df.select_dtypes(np.number).columns[0]
-
     df["set"] = pd.to_numeric(df[col], errors="coerce")
-
     return df[["date", "set"]].dropna().drop_duplicates("date").sort_values("date")
 
-
 def load_btc(path):
+    """โหลด Bitcoin"""
     if path is None:
         return None
     p = Path(path)
+    if not p.exists():
+        return None
+    
     df = pd.read_csv(p)
     date_col = "Date" if "Date" in df.columns else "date"
     df["date"] = pd.to_datetime(df[date_col], errors="coerce")
-    price_col = "Close" if "Close" in df.columns else "close"
+    
+    if "btc_price" in df.columns:
+        price_col = "btc_price"
+    elif "Close" in df.columns:
+        price_col = "Close"
+    else:
+        price_col = "close"
+    
     df["btc"] = pd.to_numeric(df[price_col], errors="coerce")
     return df[["date", "btc"]].dropna().drop_duplicates("date").sort_values("date")
 
-
-# -----------------------------
-# Main builder
-# -----------------------------
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--btc", type=str, default=None)
@@ -160,16 +150,16 @@ def main():
     print(f"[INFO] RAW = {RAW}")
 
     gold = load_gold()
-    fx   = load_fx()
-    cpi  = load_cpi()
-    oil  = load_oil()
+    fx = load_fx()
+    cpi = load_cpi()
+    oil = load_oil()
     seti = load_set()
-    btc  = load_btc(args.btc)
+    btc = load_btc(args.btc)
 
     all_data = [gold, fx, cpi, oil, seti] + ([btc] if btc is not None else [])
 
     start = min(df["date"].min() for df in all_data)
-    end   = max(df["date"].max() for df in all_data)
+    end = max(df["date"].max() for df in all_data)
 
     calendar = pd.DataFrame({"date": pd.bdate_range(start, end)})
     feat = calendar.copy()
@@ -180,7 +170,7 @@ def main():
     if btc is not None:
         feat = feat.merge(btc, on="date", how="left")
 
-    # fill
+    # Fill forward
     feat = feat.sort_values("date")
     for col in feat.columns:
         if col != "date":
@@ -189,14 +179,14 @@ def main():
     # gold_next
     feat["gold_next"] = feat["gold"].shift(-1)
 
-    # create features
+    # Create features - ใช้ชื่อที่ถูกต้อง
     vars_all = [c for c in ["gold", "fx", "cpi", "oil", "set", "btc"] if c in feat.columns]
 
     for col in vars_all:
         feat[f"{col}_lag1"] = feat[col].shift(1)
         feat[f"{col}_lag3"] = feat[col].shift(3)
-        feat[f"{col}_roll{args.roll}"] = feat[col].rolling(args.roll, min_periods=args.minp).mean()
-        feat[f"{col}_pct"] = feat[col].pct_change()
+        feat[f"{col}_roll7_mean"] = feat[col].rolling(args.roll, min_periods=args.minp).mean()  # ✅ แก้ที่นี่
+        feat[f"{col}_pct_change"] = feat[col].pct_change()  # ✅ แก้ที่นี่
 
     feat = feat.dropna().reset_index(drop=True)
 
@@ -205,7 +195,10 @@ def main():
 
     print(f"[OK] Feature store saved: {args.out}")
     print(f"[OK] rows = {len(feat)}, cols = {len(feat.columns)}")
-
+    
+    # แสดงคอลัมน์ที่สร้าง
+    feature_cols = [c for c in feat.columns if any(x in c for x in ['lag', 'roll', 'pct'])]
+    print(f"[OK] Created {len(feature_cols)} features")
 
 if __name__ == "__main__":
     main()

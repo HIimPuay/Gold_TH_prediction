@@ -1,0 +1,127 @@
+[2025-11-12 23:08:54] Start daily pipeline
+Traceback (most recent call last):
+  File "/Users/nichanun/Desktop/DSDN/ingest/ingest_gold.py", line 3, in <module>
+    import requests
+ModuleNotFoundError: No module named 'requests'
+[2025-11-12 23:08:54.762563+07:00] === DAILY PIPELINE START ===
+[2025-11-12 23:08:54.762745+07:00] >>> INGEST_GOLD
+INGEST_GOLD FAILED with code 1
+[2025-11-12 23:08:54] Done
+[2025-11-12 23:12:46] Start daily pipeline
+✅ บันทึกข้อมูลลงไฟล์ ../data/raw/gold_history.csv
+         date  ...                                  source_url
+0  12/11/2568  ...  https://api.chnwt.dev/thai-gold-api/latest
+
+[1 rows x 8 columns]
+=== STEP 2: Data Alignment ===
+Traceback (most recent call last):
+  File "/Users/nichanun/Desktop/DSDN/scripts/data_alignment_steps_btc.py", line 50, in <module>
+    fx = pd.read_csv(RAW / "exchange_rate.csv")
+  File "/Users/nichanun/Desktop/DSDN/.venv/lib/python3.13/site-packages/pandas/io/parsers/readers.py", line 1026, in read_csv
+    return _read(filepath_or_buffer, kwds)
+  File "/Users/nichanun/Desktop/DSDN/.venv/lib/python3.13/site-packages/pandas/io/parsers/readers.py", line 620, in _read
+    parser = TextFileReader(filepath_or_buffer, **kwds)
+  File "/Users/nichanun/Desktop/DSDN/.venv/lib/python3.13/site-packages/pandas/io/parsers/readers.py", line 1620, in __init__
+    self._engine = self._make_engine(f, self.engine)
+                   ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/Users/nichanun/Desktop/DSDN/.venv/lib/python3.13/site-packages/pandas/io/parsers/readers.py", line 1880, in _make_engine
+    self.handles = get_handle(
+                   ~~~~~~~~~~^
+        f,
+        ^^
+    ...<6 lines>...
+        storage_options=self.options.get("storage_options", None),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/nichanun/Desktop/DSDN/.venv/lib/python3.13/site-packages/pandas/io/common.py", line 873, in get_handle
+    handle = open(
+        handle,
+    ...<3 lines>...
+        newline="",
+    )
+FileNotFoundError: [Errno 2] No such file or directory: '../data/raw/exchange_rate.csv'
+[2025-11-12 23:12:46.333202+07:00] === DAILY PIPELINE START ===
+[2025-11-12 23:12:46.333424+07:00] >>> INGEST_GOLD
+[2025-11-12 23:12:48.840536+07:00] >>> ALIGN_DATA
+ALIGN_DATA FAILED with code 1
+[2025-11-12 23:12:49] Done
+[2025-11-12 23:20:06] Start daily pipeline
+✅ บันทึกข้อมูลลงไฟล์ ../data/raw/gold_history.csv
+         date  ...                                  source_url
+0  12/11/2568  ...  https://api.chnwt.dev/thai-gold-api/latest
+
+[1 rows x 8 columns]
+=== STEP 2: Data Alignment ===
+Traceback (most recent call last):
+  File "/Users/nichanun/Desktop/DSDN/scripts/data_alignment_steps_btc.py", line 50, in <module>
+    fx = pd.read_csv(RAW / "exchange_rate.csv")
+  File "/Users/nichanun/Desktop/DSDN/.venv/lib/python3.13/site-packages/pandas/io/parsers/readers.py", line 1026, in read_csv
+    return _read(filepath_or_buffer, kwds)
+  File "/Users/nichanun/Desktop/DSDN/.venv/lib/python3.13/site-packages/pandas/io/parsers/readers.py", line 620, in _read
+    parser = TextFileReader(filepath_or_buffer, **kwds)
+  File "/Users/nichanun/Desktop/DSDN/.venv/lib/python3.13/site-packages/pandas/io/parsers/readers.py", line 1620, in __init__
+    self._engine = self._make_engine(f, self.engine)
+                   ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/Users/nichanun/Desktop/DSDN/.venv/lib/python3.13/site-packages/pandas/io/parsers/readers.py", line 1880, in _make_engine
+    self.handles = get_handle(
+                   ~~~~~~~~~~^
+        f,
+        ^^
+    ...<6 lines>...
+        storage_options=self.options.get("storage_options", None),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/nichanun/Desktop/DSDN/.venv/lib/python3.13/site-packages/pandas/io/common.py", line 873, in get_handle
+    handle = open(
+        handle,
+    ...<3 lines>...
+        newline="",
+    )
+FileNotFoundError: [Errno 2] No such file or directory: '../data/raw/exchange_rate.csv'
+[2025-11-12 23:20:06.488153+07:00] === DAILY PIPELINE START ===
+[2025-11-12 23:20:06.488357+07:00] >>> INGEST_GOLD
+[2025-11-12 23:20:20.196637+07:00] >>> ALIGN_DATA
+ALIGN_DATA FAILED with code 1
+[2025-11-12 23:20:20] Done
+[2025-11-15 16:05:22] Start daily pipeline
+[2025-11-15 16:05:24] Start daily pipeline
+✅ บันทึกข้อมูลลงไฟล์ ../data/raw/gold_history.csv
+         date  ...                                  source_url
+0  15/11/2568  ...  https://api.chnwt.dev/thai-gold-api/latest
+
+[1 rows x 8 columns]
+=== STEP 2: Data Alignment ===
+Traceback (most recent call last):
+  File "/Users/nichanun/Desktop/DSDN/scripts/data_alignment_steps_btc.py", line 50, in <module>
+    fx = pd.read_csv(RAW / "exchange_rate.csv")
+  File "/Users/nichanun/Desktop/DSDN/.venv/lib/python3.13/site-packages/pandas/io/parsers/readers.py", line 1026, in read_csv
+    return _read(filepath_or_buffer, kwds)
+  File "/Users/nichanun/Desktop/DSDN/.venv/lib/python3.13/site-packages/pandas/io/parsers/readers.py", line 620, in _read
+    parser = TextFileReader(filepath_or_buffer, **kwds)
+  File "/Users/nichanun/Desktop/DSDN/.venv/lib/python3.13/site-packages/pandas/io/parsers/readers.py", line 1620, in __init__
+    self._engine = self._make_engine(f, self.engine)
+                   ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/Users/nichanun/Desktop/DSDN/.venv/lib/python3.13/site-packages/pandas/io/parsers/readers.py", line 1880, in _make_engine
+    self.handles = get_handle(
+                   ~~~~~~~~~~^
+        f,
+        ^^
+    ...<6 lines>...
+        storage_options=self.options.get("storage_options", None),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/nichanun/Desktop/DSDN/.venv/lib/python3.13/site-packages/pandas/io/common.py", line 873, in get_handle
+    handle = open(
+        handle,
+    ...<3 lines>...
+        newline="",
+    )
+FileNotFoundError: [Errno 2] No such file or directory: '../data/raw/exchange_rate.csv'
+[2025-11-15 16:05:24.702143+07:00] === DAILY PIPELINE START ===
+[2025-11-15 16:05:24.702332+07:00] >>> INGEST_GOLD
+[2025-11-15 16:05:25.545642+07:00] >>> ALIGN_DATA
+ALIGN_DATA FAILED with code 1
+[2025-11-15 16:05:25] Done

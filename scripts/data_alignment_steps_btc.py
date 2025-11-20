@@ -1,157 +1,131 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-data_alignment_steps.py (with Bitcoin support)
----------------------------------
-Detailed step-by-step script for:
-(2) Data Alignment
-(3) Frequency Transformation
-(4) Handle Missing Values
-(5) Target Variable
-(6) Feature Engineering (Lag / Rolling / pct_change)
+data_alignment_steps_btc.py - รวมข้อมูลทั้งหมด (รวม Bitcoin)
 """
-
 import pandas as pd
-import numpy as np
 from pathlib import Path
 
-# ---------------- CONFIG ---------------- #
-RAW = Path("../data/raw")              # path to raw data
-OUT = Path("../data/Feature_store/feature_store.csv")
-BTC_PATH = RAW / "bitcoin_history.csv"  # <<<< เพิ่ม Bitcoin
+# ==== PATH CONFIG ====
+BASE = Path("/Users/nichanun/Desktop/DSDN")
+RAW_DIR = BASE / "data" / "raw"
+ALIGNED_DIR = BASE / "data" / "aligned"
 
-# ---------------- STEP 2: Data Alignment ---------------- #
+# Input files
+GOLD_FILE = RAW_DIR / "gold_history.csv"
+USD_FILE = RAW_DIR / "USD_THB_Historical Data.csv"
+CPI_FILE = RAW_DIR / "CPI_Thailand_Monthly.csv"
+OIL_FILE = RAW_DIR / "Brent_Oil_Futures_Historical_Data.csv"
+SET_FILE = RAW_DIR / "SET Index Historical Data.csv"
+BTC_FILE = RAW_DIR / "bitcoin_history.csv"  # ← เพิ่ม Bitcoin
 
-def parse_buddhist_date(s):
-    """แปลงวันที่ พ.ศ. เช่น 02/01/2566 → 2023-01-02"""
-    dt = pd.to_datetime(s, dayfirst=True, errors="coerce")
-    if isinstance(s, str) and "/" in s:
-        try:
-            d, m, y = s.split("/")[:3]
-            y = int(y) - 543 if int(y) > 2400 else int(y)
-            dt = pd.to_datetime(f"{d}/{m}/{y}", dayfirst=True, errors="coerce")
-        except Exception:
-            pass
-    if pd.notna(dt) and dt.year > 2400:
-        dt = dt.replace(year=dt.year - 543)
-    return dt
+# Output
+OUTPUT_FILE = ALIGNED_DIR / "aligned_daily.csv"
 
+def load_gold():
+    """โหลดข้อมูลทอง"""
+    df = pd.read_csv(GOLD_FILE)
+    df['date'] = pd.to_datetime(df['datetime']).dt.date
+    df['gold'] = df['gold_sell']
+    return df[['date', 'gold']].drop_duplicates('date')
 
-print("=== STEP 2: Data Alignment ===")
+def load_usd_thb():
+    """โหลด USD/THB"""
+    df = pd.read_csv(USD_FILE)
+    df['date'] = pd.to_datetime(df['Date'], format='%m/%d/%Y').dt.date
+    df['fx'] = df['Price']
+    return df[['date', 'fx']].drop_duplicates('date')
 
-# Gold
-gold = pd.read_csv(RAW / "gold_history.csv")
-gold["date"] = gold["date"].apply(parse_buddhist_date)
-gold = gold.dropna(subset=["date"])
-price_col = "gold_sell" if "gold_sell" in gold.columns else "gold_bar_sell"
-gold = gold[["date", price_col]].rename(columns={price_col: "gold"}).sort_values("date")
+def load_cpi():
+    """โหลด CPI (รายเดือน → forward fill รายวัน)"""
+    df = pd.read_csv(CPI_FILE)
+    df['date'] = pd.to_datetime(df['Date'], format='%Y-%m-%d').dt.date
+    df['cpi'] = df['CPI']
+    return df[['date', 'cpi']].drop_duplicates('date')
 
-# FX (monthly)
-fx = pd.read_csv(RAW / "exchange_rate.csv")
-fx["date"] = pd.to_datetime(fx["period"].astype(str) + "-01", errors="coerce")
-fx = fx[["date", "mid_rate"]].rename(columns={"mid_rate": "fx"}).sort_values("date")
+def load_oil():
+    """โหลดราคาน้ำมัน"""
+    df = pd.read_csv(OIL_FILE)
+    df['date'] = pd.to_datetime(df['Date'], format='%m/%d/%Y').dt.date
+    df['oil'] = df['Price']
+    return df[['date', 'oil']].drop_duplicates('date')
 
-# CPI (monthly, code == 0)
-cpi = pd.read_csv(RAW / "CPI_clean_for_supabase.csv")
-cpi = cpi[cpi["code"].astype(str) == "0"].copy()
-cpi["date"] = pd.to_datetime(cpi["date"], errors="coerce")
-cpi = cpi[["date", "cpi_index"]].rename(columns={"cpi_index": "cpi"}).sort_values("date")
+def load_set():
+    """โหลด SET Index"""
+    df = pd.read_csv(SET_FILE)
+    df['date'] = pd.to_datetime(df['Date'], format='%m/%d/%Y').dt.date
+    df['set'] = df['Price']
+    return df[['date', 'set']].drop_duplicates('date')
 
-# OIL (monthly, mean per month)
-oil = pd.read_csv(RAW / "petroleum_data.csv")
-oil["date"] = pd.to_datetime(oil["period"].astype(str) + "-01", errors="coerce")
-oil = oil.groupby("date", as_index=False)["value"].mean().rename(columns={"value": "oil"})
+def load_bitcoin():
+    """โหลด Bitcoin (BTC/THB)"""
+    if not BTC_FILE.exists():
+        print("⚠️  Bitcoin data not found, skipping...")
+        return pd.DataFrame(columns=['date', 'btc'])
+    
+    df = pd.read_csv(BTC_FILE)
+    df['date'] = pd.to_datetime(df['date']).dt.date
+    df['btc'] = df['btc_price']
+    return df[['date', 'btc']].drop_duplicates('date')
 
-# SET (daily)
-setidx = pd.read_csv(RAW / "set_index.csv")
-setidx["date_parsed"] = pd.to_datetime(setidx["date"], errors="coerce")
-setidx = setidx[setidx["date_parsed"].notna()].copy()
-setidx["date"] = setidx["date_parsed"]
-setidx["Close"] = pd.to_numeric(setidx["Close"], errors="coerce")
-setidx = setidx.dropna(subset=["Close"])
-setidx = setidx[["date", "Close"]].rename(columns={"Close": "set"}).sort_values("date")
+def merge_all():
+    """รวมข้อมูลทั้งหมด"""
+    print("📊 Loading data...")
+    
+    df_gold = load_gold()
+    df_fx = load_usd_thb()
+    df_cpi = load_cpi()
+    df_oil = load_oil()
+    df_set = load_set()
+    df_btc = load_bitcoin()
+    
+    print(f"   Gold:    {len(df_gold)} days")
+    print(f"   USD/THB: {len(df_fx)} days")
+    print(f"   CPI:     {len(df_cpi)} months")
+    print(f"   Oil:     {len(df_oil)} days")
+    print(f"   SET:     {len(df_set)} days")
+    print(f"   Bitcoin: {len(df_btc)} days")
+    
+    # Merge ทั้งหมด (outer join)
+    df = df_gold.copy()
+    df = df.merge(df_fx, on='date', how='outer')
+    df = df.merge(df_cpi, on='date', how='outer')
+    df = df.merge(df_oil, on='date', how='outer')
+    df = df.merge(df_set, on='date', how='outer')
+    
+    # Merge Bitcoin (ถ้ามี)
+    if not df_btc.empty:
+        df = df.merge(df_btc, on='date', how='outer')
+    else:
+        df['btc'] = None
+    
+    # Sort by date
+    df = df.sort_values('date').reset_index(drop=True)
+    
+    # Forward fill (CPI และวันหยุด)
+    df = df.ffill()
+    
+    # Drop rows with missing gold (target variable)
+    df = df.dropna(subset=['gold'])
+    
+    print(f"\n✅ Merged: {len(df)} rows")
+    print(f"   Date range: {df['date'].min()} to {df['date'].max()}")
+    print(f"   Missing values:")
+    print(df.isnull().sum())
+    
+    return df
 
-# <<<< เพิ่ม Bitcoin >>>>
-btc = None
-if BTC_PATH.exists():
-    try:
-        btc_df = pd.read_csv(BTC_PATH)
-        date_col = "Date" if "Date" in btc_df.columns else "date"
-        price_col = "Close" if "Close" in btc_df.columns else "close"
-        btc = btc_df[[date_col, price_col]].copy()
-        btc["date"] = pd.to_datetime(btc[date_col], errors="coerce")
-        btc = btc.rename(columns={price_col: "btc"})
-        btc = btc[["date", "btc"]].dropna().sort_values("date")
-        btc["btc"] = pd.to_numeric(btc["btc"], errors="coerce")
-        btc = btc.dropna(subset=["btc"]).drop_duplicates(subset=["date"], keep="last")
-        print(f"✅ Bitcoin data loaded: {len(btc)} rows")
-    except Exception as e:
-        print(f"⚠️ Bitcoin load failed: {e}")
-        btc = None
-else:
-    print(f"⚠️ Bitcoin file not found at {BTC_PATH}")
+def main():
+    print("🔗 Data Alignment Pipeline")
+    print("=" * 60)
+    
+    df = merge_all()
+    
+    # Save
+    ALIGNED_DIR.mkdir(parents=True, exist_ok=True)
+    df.to_csv(OUTPUT_FILE, index=False)
+    
+    print(f"\n💾 Saved to: {OUTPUT_FILE}")
+    print(f"   Columns: {', '.join(df.columns)}")
 
-# Combine by date
-datasets = [gold, fx, cpi, oil, setidx]
-if btc is not None:
-    datasets.append(btc)
-
-start = min(df["date"].min() for df in datasets)
-end = max(df["date"].max() for df in datasets)
-calendar = pd.DataFrame({"date": pd.bdate_range(start, end)})
-
-feat = calendar.copy()
-for name, df in [("gold", gold), ("fx", fx), ("cpi", cpi), ("oil", oil), ("set", setidx)]:
-    feat = feat.merge(df, on="date", how="left")
-
-if btc is not None:
-    feat = feat.merge(btc, on="date", how="left")
-
-print("Combined shape:", feat.shape)
-
-# ---------------- STEP 3: Frequency Transformation ---------------- #
-print("=== STEP 3: Frequency Transformation ===")
-
-feat["cpi"] = feat["cpi"].ffill()
-feat["fx"] = feat["fx"].ffill()
-feat["oil"] = feat["oil"].ffill()
-
-cols_to_fill = ["gold", "set"]
-if "btc" in feat.columns:
-    cols_to_fill.append("btc")
-
-for col in cols_to_fill:
-    feat[col] = feat[col].ffill().bfill()
-
-# ---------------- STEP 4: Handle Missing Values ---------------- #
-print("=== STEP 4: Handle Missing Values ===")
-cols_to_interpolate = ["gold", "fx", "cpi", "oil", "set"]
-if "btc" in feat.columns:
-    cols_to_interpolate.append("btc")
-
-for col in cols_to_interpolate:
-    feat[col] = feat[col].ffill().bfill().interpolate(limit_direction="both")
-
-# ---------------- STEP 5: Target Variable ---------------- #
-print("=== STEP 5: Target Variable ===")
-feat["gold_next"] = feat["gold"].shift(-1)
-
-# ---------------- STEP 6: Feature Engineering ---------------- #
-print("=== STEP 6: Feature Engineering ===")
-vars_all = ["gold", "fx", "cpi", "oil", "set"]
-if "btc" in feat.columns:
-    vars_all.append("btc")
-
-for col in vars_all:
-    feat[f"{col}_lag1"] = feat[col].shift(1)
-    feat[f"{col}_lag3"] = feat[col].shift(3)
-    feat[f"{col}_roll7_mean"] = feat[col].rolling(7, min_periods=3).mean()
-    feat[f"{col}_pct_change"] = feat[col].pct_change()
-
-feat = feat.dropna().reset_index(drop=True)
-OUT.parent.mkdir(parents=True, exist_ok=True)
-feat.to_csv(OUT, index=False)
-
-print(f"[OK] Saved Feature Store → {OUT.as_posix()}")
-print("Rows:", len(feat), "Cols:", len(feat.columns))
-print("Variables:", vars_all)
+if __name__ == "__main__":
+    main()
