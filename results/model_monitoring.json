@@ -1,0 +1,45 @@
+[
+  {
+    "generated_at": "2025-11-22T00:52:34.735947",
+    "data_points": 50,
+    "date_range": {
+      "start": "2025-10-01 00:00:00",
+      "end": "2025-11-19 00:00:00"
+    },
+    "accuracy": {
+      "current_7d": 99.78346022648876,
+      "current_30d": 99.6579471296879,
+      "decay_rate_7d": -0.033743031497195375,
+      "decay_rate_30d": -0.006829086653809213
+    },
+    "drift_detection": {
+      "7d": {
+        "drift_detected": false,
+        "decay_rate": -0.033743031497195375,
+        "current_accuracy": 99.78346022648876,
+        "is_declining": false,
+        "severity": "LOW"
+      },
+      "30d": {
+        "drift_detected": false,
+        "decay_rate": -0.006829086653809213,
+        "current_accuracy": 99.6579471296879,
+        "is_declining": false,
+        "severity": "LOW"
+      }
+    },
+    "balance_index": {
+      "value": 0.04,
+      "interpretation": "BALANCED"
+    },
+    "adaptation": {
+      "speed": "STABLE",
+      "variance": 0.0012071833020576355,
+      "trend": "IMPROVING",
+      "slope": 0.0016940416800882692
+    },
+    "recommendations": [
+      "\u2705 Model performance is stable."
+    ]
+  }
+]
