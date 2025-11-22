@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ทำนายราคาทองแท่ง (รับซื้อ)</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .form-group { margin-bottom: 20px; }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+            margin-top: 10px;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        .result {
+            margin-top: 30px;
+            padding: 25px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-radius: 15px;
+            display: none;
+        }
+        .result h2 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 22px;
+        }
+        .result-item {
+            padding: 12px;
+            margin: 8px 0;
+            background: white;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .result-label {
+            color: #666;
+            font-weight: 500;
+        }
+        .result-value {
+            color: #333;
+            font-weight: 700;
+            font-size: 18px;
+        }
+        .result-value.positive { color: #10b981; }
+        .result-value.negative { color: #ef4444; }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            display: none;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .error {
+            padding: 15px;
+            background: #fee;
+            border: 2px solid #fcc;
+            border-radius: 10px;
+            color: #c33;
+            margin-top: 20px;
+            display: none;
+        }
+        .info {
+            text-align: center;
+            margin-top: 20px;
+            padding: 15px;
+            background: #e3f2fd;
+            border-radius: 10px;
+            font-size: 13px;
+            color: #1976d2;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏆 ทำนายราคาทองแท่ง</h1>
+        <p class="subtitle">ราคารับซื้อ (Gold Bar Buy Price)</p>
+        
+        <form id="predictForm">
+            <div class="form-group">
+                <label for="date">📅 วันที่:</label>
+                <input type="date" id="date" required>
+            </div>
+            <div class="form-group">
+                <label for="gold">💰 ราคาทองปัจจุบัน (บาท/บาท):</label>
+                <input type="number" id="gold" step="0.01" value="61409.80" required>
+            </div>
+            <div class="form-group">
+                <label for="fx">💵 อัตราแลกเปลี่ยน USD/THB:</label>
+                <input type="number" id="fx" step="0.0001" value="32.5546" required>
+            </div>
+            <div class="form-group">
+                <label for="cpi">📊 CPI (ดัชนีราคาผู้บริโภค):</label>
+                <input type="number" id="cpi" step="0.01" value="100.11" required>
+            </div>
+            <div class="form-group">
+                <label for="oil">🛢️ ราคาน้ำมัน (USD/บาร์เรล):</label>
+                <input type="number" id="oil" step="0.01" value="3.61" required>
+            </div>
+            <div class="form-group">
+                <label for="set">📈 SET Index:</label>
+                <input type="number" id="set" step="0.01" value="1302.91" required>
+            </div>
+            <div class="form-group">
+                <label for="btc">₿ Bitcoin (THB):</label>
+                <input type="number" id="btc" step="0.01" value="2756023" required>
+            </div>
+            <button type="submit">🔮 ทำนายราคา</button>
+        </form>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p style="margin-top: 10px; color: #666;">กำลังทำนาย...</p>
+        </div>
+        
+        <div class="error" id="error"></div>
+        
+        <div class="result" id="result">
+            <h2>📊 ผลการทำนาย</h2>
+            <div class="result-item">
+                <span class="result-label">ราคาทองปัจจุบัน:</span>
+                <span class="result-value" id="currentPrice">-</span>
+            </div>
+            <div class="result-item">
+                <span class="result-label">ราคาที่ทำนาย:</span>
+                <span class="result-value" id="predictedPrice">-</span>
+            </div>
+            <div class="result-item">
+                <span class="result-label">การเปลี่ยนแปลง:</span>
+                <span class="result-value" id="change">-</span>
+            </div>
+            <div class="result-item">
+                <span class="result-label">Model:</span>
+                <span class="result-value" id="model" style="font-size: 14px;">-</span>
+            </div>
+        </div>
+        
+        <div class="info">
+            ⚠️ ข้อมูลนี้ใช้สำหรับการศึกษาเท่านั้น<br>
+            ไม่ควรใช้เป็นคำแนะนำในการลงทุนโดยตรง
+        </div>
+    </div>
+    
+    <script>
+        document.getElementById('date').valueAsDate = new Date();
+        
+        document.getElementById('predictForm').onsubmit = async (e) => {
+            e.preventDefault();
+            
+            document.getElementById('result').style.display = 'none';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('loading').style.display = 'block';
+            
+            const data = {
+                date: document.getElementById('date').value,
+                gold: parseFloat(document.getElementById('gold').value),
+                fx: parseFloat(document.getElementById('fx').value),
+                cpi: parseFloat(document.getElementById('cpi').value),
+                oil: parseFloat(document.getElementById('oil').value),
+                set: parseFloat(document.getElementById('set').value),
+                btc: parseFloat(document.getElementById('btc').value)
+            };
+            
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'เกิดข้อผิดพลาด');
+                }
+                
+                const result = await response.json();
+                
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('result').style.display = 'block';
+                
+                document.getElementById('currentPrice').textContent = 
+                    data.gold.toFixed(2) + ' บาท';
+                
+                document.getElementById('predictedPrice').textContent = 
+                    result.predicted_gold.toFixed(2) + ' บาท';
+                
+                const changeElement = document.getElementById('change');
+                const changeText = result.change >= 0 ? '+' : '';
+                changeElement.textContent = 
+                    `${changeText}${result.change.toFixed(2)} บาท (${changeText}${result.change_pct.toFixed(2)}%)`;
+                changeElement.className = 'result-value ' + 
+                    (result.change >= 0 ? 'positive' : 'negative');
+                
+                document.getElementById('model').textContent = result.model;
+                
+            } catch (error) {
+                document.getElementById('loading').style.display = 'none';
+                const errorDiv = document.getElementById('error');
+                errorDiv.textContent = '❌ ' + error.message;
+                errorDiv.style.display = 'block';
+            }
+        };
+    </script>
+</body>
+</html>

@@ -83,3 +83,14 @@ def predict(inp: PredictInput):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+# เพิ่มที่ต้นไฟล์
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
+
+# เพิ่มหลัง app = FastAPI(...)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    with open("static/index.html") as f:
+        return f.read()

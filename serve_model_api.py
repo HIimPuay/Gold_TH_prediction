@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
-"""
-Gold Price Predictor API
-ทำนายราคาทองแท่ง (รับซื้อ) พร้อม Web UI
-"""
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import joblib
 import pandas as pd
@@ -14,50 +11,47 @@ from typing import Optional
 from datetime import datetime
 import os
 
-# ==================== CONFIG ====================
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_PATH = BASE_DIR / "model" / "best_model.pkl"
 METADATA_PATH = BASE_DIR / "model" / "model_metadata.pkl"
 FEATURE_STORE_PATH = BASE_DIR / "data" / "Feature_store" / "feature_store.csv"
 STATIC_DIR = BASE_DIR / "static"
 
-# ==================== APP ====================
 app = FastAPI(
     title="Gold Price Predictor API",
     description="API สำหรับทำนายราคาทองแท่ง (รับซื้อ)",
     version="1.0.0"
 )
 
-# Mount static files (ถ้ามี)
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Static files
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-# ==================== GLOBAL VARIABLES ====================
 model = None
 metadata = None
 
-# ==================== STARTUP ====================
 @app.on_event("startup")
 async def load_model():
-    """โหลด model ตอน startup"""
     global model, metadata
     try:
         if MODEL_PATH.exists():
             model = joblib.load(MODEL_PATH)
             print(f"✅ Model loaded: {MODEL_PATH}")
-        else:
-            print(f"⚠️  Model not found: {MODEL_PATH}")
-            
         if METADATA_PATH.exists():
             metadata = joblib.load(METADATA_PATH)
             print(f"✅ Metadata loaded: {metadata.get('model_type', 'unknown').upper()}")
-        else:
-            print(f"⚠️  Metadata not found: {METADATA_PATH}")
-            
     except Exception as e:
-        print(f"❌ Error loading model: {e}")
+        print(f"❌ Error: {e}")
 
-# ==================== MODELS ====================
 class PredictInput(BaseModel):
     date: Optional[str] = None
     gold: float
@@ -65,7 +59,7 @@ class PredictInput(BaseModel):
     cpi: float
     oil: float
     set: float
-    btc: float = 0.0
+    btc: Optional[float] = 0.0  # ทำให้เป็น Optional
 
 class PredictOutput(BaseModel):
     model: str
@@ -74,55 +68,37 @@ class PredictOutput(BaseModel):
     change_pct: float
     message: str
 
-# ==================== ROUTES ====================
-
 @app.get("/")
 async def root():
-    """หน้าแรก - Web UI (ถ้ามี)"""
     index_path = STATIC_DIR / "index.html"
     if index_path.exists():
         with open(index_path) as f:
             return HTMLResponse(content=f.read())
-    else:
-        return {
-            "message": "Gold Price Predictor API",
-            "docs": "/docs",
-            "health": "/health",
-            "predict": "/predict"
-        }
+    return {"message": "Gold Price Predictor API", "docs": "/docs"}
 
 @app.get("/health")
 def health():
-    """ตรวจสอบสถานะ API"""
     return {
         "status": "ok",
         "model_loaded": model is not None,
         "metadata_loaded": metadata is not None,
-        "model_type": metadata.get('model_type', 'unknown') if metadata else None,
         "feature_store_exists": FEATURE_STORE_PATH.exists()
     }
 
 @app.post("/predict", response_model=PredictOutput)
 def predict(inp: PredictInput):
-    """ทำนายราคาทอง"""
+    if model is None or metadata is None:
+        raise HTTPException(500, "Model not loaded")
     
-    # เช็คว่าโหลด model แล้ว
-    if model is None:
-        raise HTTPException(status_code=500, detail="Model not loaded")
-    
-    if metadata is None:
-        raise HTTPException(status_code=500, detail="Metadata not loaded")
-    
-    # เช็คว่ามี feature store
     if not FEATURE_STORE_PATH.exists():
-        raise HTTPException(status_code=500, detail="Feature store not found")
+        raise HTTPException(500, "Feature store not found")
     
     try:
-        # 1. โหลด context (14 วันล่าสุด)
+        # โหลด context
         df_context = pd.read_csv(FEATURE_STORE_PATH, parse_dates=['date'])
         df_context = df_context.sort_values('date').tail(14)
         
-        # 2. สร้างแถวใหม่
+        # สร้างแถวใหม่
         new_date = pd.to_datetime(inp.date if inp.date else datetime.now().strftime("%Y-%m-%d"))
         new_row = {
             'date': new_date,
@@ -133,26 +109,24 @@ def predict(inp: PredictInput):
             'set': inp.set
         }
         
-        # 3. รวมข้อมูล
+        # รวมข้อมูล
         df = pd.concat([
             df_context[['date', 'gold', 'fx', 'cpi', 'oil', 'set']], 
             pd.DataFrame([new_row])
         ], ignore_index=True)
         
-        # 4. สร้าง features
+        # สร้าง features
         for var in ['gold', 'fx', 'cpi', 'oil', 'set']:
             df[f'{var}_lag1'] = df[var].shift(1)
             df[f'{var}_lag3'] = df[var].shift(3)
             df[f'{var}_roll7_mean'] = df[var].rolling(7, min_periods=3).mean()
             df[f'{var}_pct_change'] = df[var].pct_change()
         
-        # 5. เตรียม input สำหรับ model
+        # เตรียม input
         X = df.tail(1)[metadata['features']].fillna(0)
         
-        # 6. ทำนาย
+        # ทำนาย
         prediction = float(model.predict(X)[0])
-        
-        # 7. คำนวณการเปลี่ยนแปลง
         change = prediction - inp.gold
         change_pct = (change / inp.gold * 100) if inp.gold > 0 else 0
         
@@ -161,29 +135,26 @@ def predict(inp: PredictInput):
             predicted_gold=round(prediction, 2),
             change=round(change, 2),
             change_pct=round(change_pct, 2),
-            message=f"ทำนายราคาทองแท่ง (รับซื้อ) สำเร็จ"
+            message="ทำนายสำเร็จ"
         )
         
-    except KeyError as e:
-        raise HTTPException(status_code=400, detail=f"Missing feature: {e}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
+        print(f"❌ Prediction error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"Error: {str(e)}")
 
 @app.get("/version")
 def version():
-    """ข้อมูล API version"""
     return {
         "api_version": "1.0.0",
-        "model_type": metadata.get('model_type', 'unknown') if metadata else None,
-        "features": len(metadata.get('features', [])) if metadata else 0,
-        "trained_at": metadata.get('trained_at', 'unknown') if metadata else None
+        "model_type": metadata.get('model_type', 'unknown') if metadata else None
     }
 
-# ==================== MAIN ====================
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
-    print(f"\n🚀 Starting Gold Price Predictor API on port {port}...")
-    print(f"📖 API Docs: http://localhost:{port}/docs")
-    print(f"🏥 Health: http://localhost:{port}/health\n")
+    print(f"\n🚀 Gold Price Predictor API")
+    print(f"🌐 Web UI: http://localhost:{port}")
+    print(f"📖 API Docs: http://localhost:{port}/docs\n")
     uvicorn.run(app, host="0.0.0.0", port=port)
