@@ -336,7 +336,7 @@ def get_predictions(model, name, X_test, y_test, df_full, feature_cols, test_siz
         
         predictions_scaled = model.predict(X_test_lstm, verbose=0)
         
-        n_features = scaler.n_features_in_()
+        n_features = scaler.n_features_in_
         predictions_dummy = np.zeros((predictions_scaled.shape[0], n_features))
         predictions_dummy[:, 0] = predictions_scaled.flatten()
         predictions_unscaled = scaler.inverse_transform(predictions_dummy)[:, 0].flatten()

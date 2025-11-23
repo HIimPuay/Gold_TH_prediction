@@ -25,7 +25,7 @@ def find_project_root():
 
 PROJECT_ROOT = find_project_root()
 MODEL_DIR = PROJECT_ROOT / "model"
-# FEATURE_STORE = PROJECT_ROOT / "data" / "Feature_store" / "feature_store.csv" เปลี่ยนรูทไฟล์ฟีเจอร์เป็นอันใหม่
+FEATURE_STORE = PROJECT_ROOT / "data" / "Feature_store" / "feature_store.csv" 
 
 def load_model_and_metadata(model_dir: Path):
     """โหลดโมเดลและ metadata"""
