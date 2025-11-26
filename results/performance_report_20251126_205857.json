@@ -1,0 +1,55 @@
+{
+  "timestamp": "2025-11-26T20:58:57.748006",
+  "model_type": "RIDGE",
+  "accuracy": {
+    "mae": 368.69479349496373,
+    "rmse": 573.4519588826936,
+    "r2": 0.9850251891622304,
+    "mape": 0.6680665000393372,
+    "accuracy_pct": 99.33193349996067
+  },
+  "latency": {
+    "mean_ms": 0.02594569994835183,
+    "p50_ms": 0.01937500201165676,
+    "p95_ms": 0.03744797140825533,
+    "p99_ms": 0.25476667913608253,
+    "std_ms": 0.046120869091130536
+  },
+  "throughput": 34342.18282917763,
+  "memory": {
+    "model_size_mb": 6.103515625e-05,
+    "process_memory_mb": 153.796875,
+    "throughput": 34342.18282917763
+  },
+  "batch_analysis": [
+    {
+      "batch_size": 1,
+      "total_latency_ms": 0.02332869218662381,
+      "latency_per_sample_ms": 0.02332869218662381,
+      "p95_latency_ms": 0.03030767838936299,
+      "throughput_samples_per_sec": 33843.33364967931
+    },
+    {
+      "batch_size": 10,
+      "total_latency_ms": 0.030729170539416373,
+      "latency_per_sample_ms": 0.0030729170539416373,
+      "p95_latency_ms": 0.0743728800443932,
+      "throughput_samples_per_sec": 361836.7286382917
+    },
+    {
+      "batch_size": 50,
+      "total_latency_ms": 0.030687079415656626,
+      "latency_per_sample_ms": 0.0006137415883131325,
+      "p95_latency_ms": 0.031535455491393805,
+      "throughput_samples_per_sec": 1713976.4328441294
+    },
+    {
+      "batch_size": 100,
+      "total_latency_ms": 0.026981160626746714,
+      "latency_per_sample_ms": 0.0002698116062674671,
+      "p95_latency_ms": 0.02625441702548414,
+      "throughput_samples_per_sec": 3316124.1437581875
+    }
+  ],
+  "trade_off_score": 3828.454568490861
+}
